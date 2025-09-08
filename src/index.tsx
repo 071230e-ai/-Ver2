@@ -268,32 +268,118 @@ app.get('/api/tags', async (c) => {
   }
 })
 
-// Stats API
-app.get('/api/stats', async (c) => {
-  const { DB } = c.env
+// Image Upload API
+app.post('/api/cards/:id/image', async (c) => {
+  const { R2 } = c.env
+  const id = c.req.param('id')
 
   try {
-    const { results: cardCount } = await DB.prepare(`
-      SELECT COUNT(*) as total FROM business_cards
-    `).all()
+    const formData = await c.req.formData()
+    const file = formData.get('image') as File
+    
+    if (!file) {
+      return c.json({ error: 'No image file provided' }, 400)
+    }
 
-    const { results: companyCount } = await DB.prepare(`
-      SELECT COUNT(DISTINCT company) as total FROM business_cards
-    `).all()
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      return c.json({ error: 'File must be an image' }, 400)
+    }
 
-    const { results: recentCards } = await DB.prepare(`
-      SELECT COUNT(*) as total FROM business_cards 
-      WHERE created_at >= datetime('now', '-7 days')
-    `).all()
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      return c.json({ error: 'File size must be less than 5MB' }, 400)
+    }
 
-    return c.json({
-      total_cards: cardCount[0].total,
-      total_companies: companyCount[0].total,
-      recent_cards: recentCards[0].total
+    // Generate unique filename
+    const timestamp = Date.now()
+    const extension = file.name.split('.').pop()
+    const fileName = `business-card-${id}-${timestamp}.${extension}`
+    
+    // Upload to R2
+    await R2.put(fileName, file.stream(), {
+      httpMetadata: {
+        contentType: file.type,
+      },
+    })
+
+    // Update database with image URL
+    const imageUrl = `/api/images/${fileName}`
+    await c.env.DB.prepare(`
+      UPDATE business_cards SET image_url = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).bind(imageUrl, id).run()
+
+    return c.json({ 
+      message: 'Image uploaded successfully',
+      image_url: imageUrl 
     })
   } catch (error) {
-    console.error('Error fetching stats:', error)
-    return c.json({ error: 'Failed to fetch statistics' }, 500)
+    console.error('Error uploading image:', error)
+    return c.json({ error: 'Failed to upload image' }, 500)
+  }
+})
+
+// Image Serving API
+app.get('/api/images/:filename', async (c) => {
+  const { R2 } = c.env
+  const filename = c.req.param('filename')
+
+  try {
+    const object = await R2.get(filename)
+    
+    if (!object) {
+      return c.json({ error: 'Image not found' }, 404)
+    }
+
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
+        'Cache-Control': 'public, max-age=31536000', // 1 year cache
+      },
+    })
+  } catch (error) {
+    console.error('Error serving image:', error)
+    return c.json({ error: 'Failed to serve image' }, 500)
+  }
+})
+
+// Delete Image API
+app.delete('/api/cards/:id/image', async (c) => {
+  const { DB, R2 } = c.env
+  const id = c.req.param('id')
+
+  try {
+    // Get current image URL
+    const { results } = await DB.prepare(`
+      SELECT image_url FROM business_cards WHERE id = ?
+    `).bind(id).all()
+
+    if (results.length === 0) {
+      return c.json({ error: 'Business card not found' }, 404)
+    }
+
+    const imageUrl = results[0].image_url
+    
+    if (imageUrl) {
+      // Extract filename from URL
+      const filename = imageUrl.split('/').pop()
+      if (filename) {
+        // Delete from R2
+        await R2.delete(filename)
+      }
+    }
+
+    // Update database
+    await DB.prepare(`
+      UPDATE business_cards SET image_url = NULL, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).bind(id).run()
+
+    return c.json({ message: 'Image deleted successfully' })
+  } catch (error) {
+    console.error('Error deleting image:', error)
+    return c.json({ error: 'Failed to delete image' }, 500)
   }
 })
 
@@ -314,20 +400,6 @@ app.get('/', (c) => {
           </div>
 
           <div id="app">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white rounded-lg shadow p-6 text-center">
-                <div className="text-3xl font-bold text-blue-600" id="total-cards">-</div>
-                <div className="text-gray-600">総名刺数</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6 text-center">
-                <div className="text-3xl font-bold text-green-600" id="total-companies">-</div>
-                <div className="text-gray-600">総企業数</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6 text-center">
-                <div className="text-3xl font-bold text-purple-600" id="recent-cards">-</div>
-                <div className="text-gray-600">今週の追加</div>
-              </div>
-            </div>
 
             <div className="bg-white rounded-lg shadow">
               <div className="p-6 border-b border-gray-200">
@@ -425,6 +497,33 @@ app.get('/', (c) => {
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-2">タグ (カンマ区切り)</label>
                         <input type="text" id="tags" placeholder="営業,技術,重要" className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">名刺画像</label>
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+                          <input 
+                            type="file" 
+                            id="image-upload" 
+                            accept="image/*" 
+                            className="hidden"
+                          />
+                          <div id="image-upload-area" className="text-center">
+                            <i className="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
+                            <p className="text-gray-600 mb-2">クリックまたはファイルをドロップして画像をアップロード</p>
+                            <p className="text-sm text-gray-500">JPG, PNG, GIF (最大5MB)</p>
+                          </div>
+                          <div id="image-preview" className="hidden">
+                            <img id="preview-image" className="max-w-full h-48 object-contain mx-auto rounded-lg" />
+                            <div className="mt-4 flex justify-center space-x-3">
+                              <button type="button" id="change-image" className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm">
+                                変更
+                              </button>
+                              <button type="button" id="remove-image" className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">
+                                削除
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
 

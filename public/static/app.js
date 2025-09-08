@@ -2,12 +2,12 @@ class BusinessCardManager {
   constructor() {
     this.currentCard = null;
     this.isEditing = false;
+    this.selectedImage = null;
     this.init();
   }
 
   async init() {
     this.setupEventListeners();
-    await this.loadStats();
     await this.loadCards();
     await this.loadCompanies();
   }
@@ -26,24 +26,85 @@ class BusinessCardManager {
     });
     document.getElementById('company-filter').addEventListener('change', () => this.handleSearch());
 
+    // Image upload controls
+    document.getElementById('image-upload-area').addEventListener('click', () => {
+      document.getElementById('image-upload').click();
+    });
+    
+    document.getElementById('image-upload').addEventListener('change', (e) => {
+      this.handleImageSelect(e.target.files[0]);
+    });
+
+    document.getElementById('change-image').addEventListener('click', () => {
+      document.getElementById('image-upload').click();
+    });
+
+    document.getElementById('remove-image').addEventListener('click', () => {
+      this.removeImagePreview();
+    });
+
+    // Drag and drop
+    const uploadArea = document.getElementById('image-upload-area');
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('bg-gray-100');
+    });
+
+    uploadArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('bg-gray-100');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('bg-gray-100');
+      
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].type.startsWith('image/')) {
+        this.handleImageSelect(files[0]);
+      }
+    });
+
     // Close modal on backdrop click
     document.getElementById('card-modal').addEventListener('click', (e) => {
       if (e.target.id === 'card-modal') this.closeModal();
     });
   }
 
-  async loadStats() {
-    try {
-      const response = await axios.get('/api/stats');
-      const stats = response.data;
-      
-      document.getElementById('total-cards').textContent = stats.total_cards;
-      document.getElementById('total-companies').textContent = stats.total_companies;
-      document.getElementById('recent-cards').textContent = stats.recent_cards;
-    } catch (error) {
-      console.error('Error loading stats:', error);
-      this.showError('統計情報の読み込みに失敗しました');
+  handleImageSelect(file) {
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      this.showError('画像ファイルを選択してください');
+      return;
     }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      this.showError('ファイルサイズは5MB以下にしてください');
+      return;
+    }
+
+    this.selectedImage = file;
+    this.showImagePreview(file);
+  }
+
+  showImagePreview(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      document.getElementById('preview-image').src = e.target.result;
+      document.getElementById('image-upload-area').classList.add('hidden');
+      document.getElementById('image-preview').classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  removeImagePreview() {
+    this.selectedImage = null;
+    document.getElementById('image-upload-area').classList.remove('hidden');
+    document.getElementById('image-preview').classList.add('hidden');
+    document.getElementById('image-upload').value = '';
   }
 
   async loadCards(filters = {}) {
@@ -96,6 +157,12 @@ class BusinessCardManager {
 
     const cardsHTML = cards.map(card => `
       <div class="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition duration-200">
+        ${card.image_url ? `
+          <div class="mb-4">
+            <img src="${this.escapeHtml(card.image_url)}" alt="名刺画像" class="w-full h-48 object-contain rounded-lg border border-gray-200">
+          </div>
+        ` : ''}
+        
         <div class="flex justify-between items-start mb-4">
           <div class="flex-1">
             <h3 class="text-lg font-semibold text-gray-900">${this.escapeHtml(card.name)}</h3>
@@ -111,6 +178,15 @@ class BusinessCardManager {
             >
               <i class="fas fa-edit"></i>
             </button>
+            ${card.image_url ? `
+              <button 
+                onclick="cardManager.deleteImage(${card.id})" 
+                class="text-orange-600 hover:text-orange-800 transition duration-200"
+                title="画像削除"
+              >
+                <i class="fas fa-image"></i>
+              </button>
+            ` : ''}
             <button 
               onclick="cardManager.deleteCard(${card.id})" 
               class="text-red-600 hover:text-red-800 transition duration-200"
@@ -186,14 +262,25 @@ class BusinessCardManager {
   openModal(card = null) {
     this.currentCard = card;
     this.isEditing = !!card;
+    this.selectedImage = null;
     
     const modal = document.getElementById('card-modal');
     const title = document.getElementById('modal-title');
     const form = document.getElementById('card-form');
     
+    // Reset image upload area
+    this.removeImagePreview();
+    
     if (this.isEditing) {
       title.textContent = '名刺編集';
       this.populateForm(card);
+      
+      // Show existing image if available
+      if (card.image_url) {
+        document.getElementById('preview-image').src = card.image_url;
+        document.getElementById('image-upload-area').classList.add('hidden');
+        document.getElementById('image-preview').classList.remove('hidden');
+      }
     } else {
       title.textContent = '新規名刺登録';
       form.reset();
@@ -205,6 +292,7 @@ class BusinessCardManager {
   closeModal() {
     document.getElementById('card-modal').classList.add('hidden');
     document.getElementById('card-form').reset();
+    this.removeImagePreview();
     this.currentCard = null;
     this.isEditing = false;
   }
@@ -225,7 +313,6 @@ class BusinessCardManager {
   async handleSubmit(e) {
     e.preventDefault();
     
-    const formData = new FormData(e.target);
     const cardData = {
       name: document.getElementById('name').value,
       company: document.getElementById('company').value,
@@ -240,21 +327,60 @@ class BusinessCardManager {
     };
 
     try {
+      let cardId;
+      
       if (this.isEditing) {
         await axios.put(`/api/cards/${this.currentCard.id}`, cardData);
+        cardId = this.currentCard.id;
         this.showSuccess('名刺を更新しました');
       } else {
-        await axios.post('/api/cards', cardData);
+        const response = await axios.post('/api/cards', cardData);
+        cardId = response.data.id;
         this.showSuccess('名刺を登録しました');
+      }
+      
+      // Upload image if selected
+      if (this.selectedImage && cardId) {
+        await this.uploadImage(cardId, this.selectedImage);
       }
       
       this.closeModal();
       await this.loadCards();
-      await this.loadStats();
       await this.loadCompanies();
     } catch (error) {
       console.error('Error saving card:', error);
       this.showError(this.isEditing ? '名刺の更新に失敗しました' : '名刺の登録に失敗しました');
+    }
+  }
+
+  async uploadImage(cardId, file) {
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      await axios.post(`/api/cards/${cardId}/image`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      this.showSuccess('画像をアップロードしました');
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      this.showError('画像のアップロードに失敗しました');
+    }
+  }
+
+  async deleteImage(cardId) {
+    if (!confirm('この名刺の画像を削除しますか？')) return;
+    
+    try {
+      await axios.delete(`/api/cards/${cardId}/image`);
+      this.showSuccess('画像を削除しました');
+      await this.loadCards();
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      this.showError('画像の削除に失敗しました');
     }
   }
 
