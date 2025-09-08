@@ -9,7 +9,6 @@ class BusinessCardManager {
   async init() {
     this.setupEventListeners();
     await this.loadCards();
-    await this.loadCompanies();
   }
 
   setupEventListeners() {
@@ -19,12 +18,12 @@ class BusinessCardManager {
     document.getElementById('cancel-btn').addEventListener('click', () => this.closeModal());
     document.getElementById('card-form').addEventListener('submit', (e) => this.handleSubmit(e));
 
-    // Search and filter
+    // Search controls
     document.getElementById('search-btn').addEventListener('click', () => this.handleSearch());
+    document.getElementById('clear-search-btn').addEventListener('click', () => this.clearSearch());
     document.getElementById('search-input').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') this.handleSearch();
     });
-    document.getElementById('company-filter').addEventListener('change', () => this.handleSearch());
 
     // Image upload controls
     document.getElementById('image-upload-area').addEventListener('click', () => {
@@ -120,27 +119,7 @@ class BusinessCardManager {
     }
   }
 
-  async loadCompanies() {
-    try {
-      const response = await axios.get('/api/cards');
-      const cards = response.data.cards;
-      
-      const companies = [...new Set(cards.map(card => card.company))].sort();
-      const select = document.getElementById('company-filter');
-      
-      // Clear existing options except the first one
-      select.innerHTML = '<option value="">全ての会社</option>';
-      
-      companies.forEach(company => {
-        const option = document.createElement('option');
-        option.value = company;
-        option.textContent = company;
-        select.appendChild(option);
-      });
-    } catch (error) {
-      console.error('Error loading companies:', error);
-    }
-  }
+
 
   renderCards(cards) {
     const container = document.getElementById('cards-container');
@@ -346,7 +325,6 @@ class BusinessCardManager {
       
       this.closeModal();
       await this.loadCards();
-      await this.loadCompanies();
     } catch (error) {
       console.error('Error saving card:', error);
       this.showError(this.isEditing ? '名刺の更新に失敗しました' : '名刺の登録に失敗しました');
@@ -402,8 +380,6 @@ class BusinessCardManager {
       await axios.delete(`/api/cards/${id}`);
       this.showSuccess('名刺を削除しました');
       await this.loadCards();
-      await this.loadStats();
-      await this.loadCompanies();
     } catch (error) {
       console.error('Error deleting card:', error);
       this.showError('名刺の削除に失敗しました');
@@ -412,13 +388,16 @@ class BusinessCardManager {
 
   handleSearch() {
     const search = document.getElementById('search-input').value.trim();
-    const company = document.getElementById('company-filter').value;
     
     const filters = {};
     if (search) filters.search = search;
-    if (company) filters.company = company;
     
     this.loadCards(filters);
+  }
+
+  clearSearch() {
+    document.getElementById('search-input').value = '';
+    this.loadCards();
   }
 
   showSuccess(message) {

@@ -23,7 +23,7 @@ app.use(renderer)
 // Business Cards API Routes
 app.get('/api/cards', async (c) => {
   const { DB } = c.env
-  const { search, company, department, tag, limit = '50', offset = '0' } = c.req.query()
+  const { search, limit = '50', offset = '0' } = c.req.query()
 
   try {
     let query = `
@@ -35,39 +35,19 @@ app.get('/api/cards', async (c) => {
       LEFT JOIN business_card_tags bct ON bc.id = bct.business_card_id
       LEFT JOIN tags t ON bct.tag_id = t.id
     `
-    const conditions = []
     const params = []
 
     if (search) {
-      conditions.push(`bc.id IN (
-        SELECT rowid FROM business_cards_fts 
-        WHERE business_cards_fts MATCH ?
-      )`)
-      params.push(search)
-    }
-
-    if (company) {
-      conditions.push(`bc.company LIKE ?`)
-      params.push(`%${company}%`)
-    }
-
-    if (department) {
-      conditions.push(`bc.department LIKE ?`)
-      params.push(`%${department}%`)
-    }
-
-    if (tag) {
-      conditions.push(`bc.id IN (
-        SELECT bct.business_card_id 
-        FROM business_card_tags bct
-        JOIN tags t ON bct.tag_id = t.id
-        WHERE t.name = ?
-      )`)
-      params.push(tag)
-    }
-
-    if (conditions.length > 0) {
-      query += ` WHERE ` + conditions.join(' AND ')
+      // Use both FTS5 search and simple LIKE search for better coverage
+      query += ` WHERE (
+        bc.id IN (
+          SELECT rowid FROM business_cards_fts 
+          WHERE business_cards_fts MATCH ?
+        ) OR 
+        bc.name LIKE ? OR 
+        bc.company LIKE ?
+      )`
+      params.push(search, `%${search}%`, `%${search}%`)
     }
 
     query += ` GROUP BY bc.id ORDER BY bc.created_at DESC LIMIT ? OFFSET ?`
@@ -413,24 +393,24 @@ app.get('/', (c) => {
                   </button>
                 </div>
 
-                <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex gap-4">
                   <input 
                     type="text" 
                     id="search-input" 
                     placeholder="名前・会社名で検索..." 
                     className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <select 
-                    id="company-filter" 
-                    className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">全ての会社</option>
-                  </select>
                   <button 
                     id="search-btn" 
-                    className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md transition duration-200"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200"
                   >
                     <i className="fas fa-search mr-2"></i>検索
+                  </button>
+                  <button 
+                    id="clear-search-btn" 
+                    className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition duration-200"
+                  >
+                    <i className="fas fa-times mr-2"></i>クリア
                   </button>
                 </div>
               </div>
