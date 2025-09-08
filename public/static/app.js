@@ -42,6 +42,15 @@ class BusinessCardManager {
       this.removeImagePreview();
     });
 
+    // Delete buttons in modal
+    document.getElementById('delete-image-btn').addEventListener('click', () => {
+      this.deleteImageFromModal();
+    });
+
+    document.getElementById('delete-card-btn').addEventListener('click', () => {
+      this.deleteCardFromModal();
+    });
+
     // Drag and drop
     const uploadArea = document.getElementById('image-upload-area');
     uploadArea.addEventListener('dragover', (e) => {
@@ -157,22 +166,6 @@ class BusinessCardManager {
             >
               <i class="fas fa-edit"></i>
             </button>
-            ${card.image_url ? `
-              <button 
-                onclick="cardManager.deleteImage(${card.id})" 
-                class="text-orange-600 hover:text-orange-800 transition duration-200"
-                title="画像削除"
-              >
-                <i class="fas fa-image"></i>
-              </button>
-            ` : ''}
-            <button 
-              onclick="cardManager.deleteCard(${card.id})" 
-              class="text-red-600 hover:text-red-800 transition duration-200"
-              title="削除"
-            >
-              <i class="fas fa-trash"></i>
-            </button>
           </div>
         </div>
 
@@ -246,6 +239,8 @@ class BusinessCardManager {
     const modal = document.getElementById('card-modal');
     const title = document.getElementById('modal-title');
     const form = document.getElementById('card-form');
+    const deleteButtons = document.getElementById('delete-buttons');
+    const deleteImageBtn = document.getElementById('delete-image-btn');
     
     // Reset image upload area
     this.removeImagePreview();
@@ -254,15 +249,24 @@ class BusinessCardManager {
       title.textContent = '名刺編集';
       this.populateForm(card);
       
-      // Show existing image if available
+      // Show delete buttons in edit mode
+      deleteButtons.classList.remove('hidden');
+      
+      // Show/hide image delete button based on image availability
       if (card.image_url) {
+        deleteImageBtn.classList.remove('hidden');
         document.getElementById('preview-image').src = card.image_url;
         document.getElementById('image-upload-area').classList.add('hidden');
         document.getElementById('image-preview').classList.remove('hidden');
+      } else {
+        deleteImageBtn.classList.add('hidden');
       }
     } else {
       title.textContent = '新規名刺登録';
       form.reset();
+      
+      // Hide delete buttons in create mode
+      deleteButtons.classList.add('hidden');
     }
     
     modal.classList.remove('hidden');
@@ -349,16 +353,35 @@ class BusinessCardManager {
     }
   }
 
-  async deleteImage(cardId) {
-    if (!confirm('この名刺の画像を削除しますか？')) return;
+  async deleteImageFromModal() {
+    if (!this.currentCard || !confirm('この名刺の画像を削除しますか？')) return;
     
     try {
-      await axios.delete(`/api/cards/${cardId}/image`);
+      await axios.delete(`/api/cards/${this.currentCard.id}/image`);
       this.showSuccess('画像を削除しました');
+      
+      // Update UI
+      document.getElementById('delete-image-btn').classList.add('hidden');
+      this.removeImagePreview();
+      
       await this.loadCards();
     } catch (error) {
       console.error('Error deleting image:', error);
       this.showError('画像の削除に失敗しました');
+    }
+  }
+
+  async deleteCardFromModal() {
+    if (!this.currentCard || !confirm('この名刺を削除しますか？この操作は元に戻せません。')) return;
+    
+    try {
+      await axios.delete(`/api/cards/${this.currentCard.id}`);
+      this.showSuccess('名刺を削除しました');
+      this.closeModal();
+      await this.loadCards();
+    } catch (error) {
+      console.error('Error deleting card:', error);
+      this.showError('名刺の削除に失敗しました');
     }
   }
 
@@ -373,18 +396,7 @@ class BusinessCardManager {
     }
   }
 
-  async deleteCard(id) {
-    if (!confirm('この名刺を削除しますか？')) return;
-    
-    try {
-      await axios.delete(`/api/cards/${id}`);
-      this.showSuccess('名刺を削除しました');
-      await this.loadCards();
-    } catch (error) {
-      console.error('Error deleting card:', error);
-      this.showError('名刺の削除に失敗しました');
-    }
-  }
+
 
   handleSearch() {
     const search = document.getElementById('search-input').value.trim();

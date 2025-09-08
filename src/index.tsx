@@ -50,7 +50,14 @@ const nameReadings: { [key: string]: string[] } = {
   'いのべーと': ['イノベート'],
   'でざいん': ['デザイン'],
   'まーけてぃんぐ': ['マーケティング'],
-  'そりゅーしょん': ['ソリューション']
+  'そりゅーしょん': ['ソリューション'],
+  // Tag readings
+  'えいぎょう': ['営業'],
+  'ぎじゅつ': ['技術'],
+  'かんりしょく': ['管理職'],
+  'ぱーとなー': ['パートナー'],
+  'こきゃく': ['顧客'],
+  'じゅうよう': ['重要']
 }
 
 // Reverse mapping (kanji/katakana to hiragana)
@@ -134,15 +141,21 @@ app.get('/api/cards', async (c) => {
         bc.company LIKE ? OR
         bc.department LIKE ? OR
         bc.position LIKE ? OR
-        bc.notes LIKE ?)
+        bc.notes LIKE ? OR
+        bc.id IN (
+          SELECT bct.business_card_id 
+          FROM business_card_tags bct
+          JOIN tags t ON bct.tag_id = t.id
+          WHERE t.name LIKE ?
+        ))
       `).join(' OR ')
       
       query += ` WHERE (${searchConditions})`
       
-      // Add parameters for each search variant
+      // Add parameters for each search variant (7 parameters per variant now)
       searchVariants.forEach(variant => {
         const likePattern = `%${variant}%`
-        params.push(variant, likePattern, likePattern, likePattern, likePattern, likePattern)
+        params.push(variant, likePattern, likePattern, likePattern, likePattern, likePattern, likePattern)
       })
     }
 
@@ -494,7 +507,7 @@ app.get('/', (c) => {
                     <input 
                       type="text" 
                       id="search-input" 
-                      placeholder="名前・会社名で検索（例: たなか、テック、田中）" 
+                      placeholder="名前・会社名・タグで検索（例: たなか、テック、えいぎょう）" 
                       className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <button 
@@ -512,7 +525,7 @@ app.get('/', (c) => {
                   </div>
                   <p className="text-sm text-gray-600">
                     <i className="fas fa-info-circle mr-1"></i>
-                    ひらがな・カタカナ・漢字での検索に対応（例: 「たなか」で「田中」がヒット）
+                    名前・会社名・タグをひらがな・カタカナ・漢字で検索可能（例: 「たなか」で「田中」、「えいぎょう」で「営業」タグがヒット）
                   </p>
                 </div>
               </div>
@@ -609,13 +622,23 @@ app.get('/', (c) => {
                       </div>
                     </div>
 
-                    <div className="flex justify-end gap-3 mt-6">
-                      <button type="button" id="cancel-btn" className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md transition duration-200">
-                        キャンセル
-                      </button>
-                      <button type="submit" id="save-btn" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200">
-                        保存
-                      </button>
+                    <div className="flex justify-between mt-6">
+                      <div id="delete-buttons" className="hidden space-x-3">
+                        <button type="button" id="delete-image-btn" className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md transition duration-200">
+                          <i className="fas fa-image mr-2"></i>画像削除
+                        </button>
+                        <button type="button" id="delete-card-btn" className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md transition duration-200">
+                          <i className="fas fa-trash mr-2"></i>名刺削除
+                        </button>
+                      </div>
+                      <div className="flex gap-3">
+                        <button type="button" id="cancel-btn" className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md transition duration-200">
+                          キャンセル
+                        </button>
+                        <button type="submit" id="save-btn" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200">
+                          保存
+                        </button>
+                      </div>
                     </div>
                   </form>
                 </div>
