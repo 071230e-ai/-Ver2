@@ -11,7 +11,7 @@
 
 ## URLs
 - **開発環境**: https://3000-i184visbb280hl2m4a86g-6532622b.e2b.dev
-- **GitHub**: 未設定（後で設定予定）
+- **GitHub**: https://github.com/071230e-ai/-Ver2
 - **API Base**: https://3000-i184visbb280hl2m4a86g-6532622b.e2b.dev/api
 
 ## 完成済み機能
