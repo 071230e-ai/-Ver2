@@ -20,6 +20,89 @@ app.use('/static/*', serveStatic({ root: './public' }))
 // Use JSX renderer
 app.use(renderer)
 
+// Japanese text conversion utilities
+function hiraganaToKatakana(str: string): string {
+  return str.replace(/[\u3041-\u3096]/g, (char) => 
+    String.fromCharCode(char.charCodeAt(0) + 0x60)
+  )
+}
+
+function katakanaToHiragana(str: string): string {
+  return str.replace(/[\u30a1-\u30f6]/g, (char) => 
+    String.fromCharCode(char.charCodeAt(0) - 0x60)
+  )
+}
+
+// Common Japanese name reading mappings
+const nameReadings: { [key: string]: string[] } = {
+  'たなか': ['田中', 'タナカ'],
+  'さとう': ['佐藤', 'サトウ'],
+  'やまだ': ['山田', 'ヤマダ'],
+  'すずき': ['鈴木', 'スズキ'],
+  'たかはし': ['高橋', 'タカハシ'],
+  'はなこ': ['花子', 'ハナコ'],
+  'たろう': ['太郎', 'タロウ'],
+  'じろう': ['次郎', 'ジロウ'],
+  'みさき': ['美咲', 'ミサキ'],
+  'けんいち': ['健一', 'ケンイチ'],
+  // Company name readings
+  'てっく': ['テック'],
+  'いのべーと': ['イノベート'],
+  'でざいん': ['デザイン'],
+  'まーけてぃんぐ': ['マーケティング'],
+  'そりゅーしょん': ['ソリューション']
+}
+
+// Reverse mapping (kanji/katakana to hiragana)
+const reverseNameReadings: { [key: string]: string[] } = {}
+Object.entries(nameReadings).forEach(([hiragana, variations]) => {
+  variations.forEach(variation => {
+    if (!reverseNameReadings[variation]) {
+      reverseNameReadings[variation] = []
+    }
+    reverseNameReadings[variation].push(hiragana)
+  })
+})
+
+function generateSearchVariants(search: string): string[] {
+  const variants = [search]
+  
+  // Add hiragana to katakana conversion
+  const katakana = hiraganaToKatakana(search)
+  if (katakana !== search) variants.push(katakana)
+  
+  // Add katakana to hiragana conversion  
+  const hiragana = katakanaToHiragana(search)
+  if (hiragana !== search) variants.push(hiragana)
+  
+  // Add name reading conversions
+  const lowerSearch = search.toLowerCase()
+  
+  // If search is hiragana, add corresponding kanji/katakana
+  if (nameReadings[lowerSearch]) {
+    variants.push(...nameReadings[lowerSearch])
+  }
+  
+  // If search is kanji/katakana, add corresponding hiragana
+  if (reverseNameReadings[search]) {
+    variants.push(...reverseNameReadings[search])
+  }
+  
+  // Check for partial matches in names
+  Object.entries(nameReadings).forEach(([hiraganaKey, kanjiValues]) => {
+    if (lowerSearch.includes(hiraganaKey) || hiraganaKey.includes(lowerSearch)) {
+      variants.push(...kanjiValues)
+    }
+    kanjiValues.forEach(kanjiValue => {
+      if (search.includes(kanjiValue) || kanjiValue.includes(search)) {
+        variants.push(hiraganaKey)
+      }
+    })
+  })
+  
+  return [...new Set(variants)] // Remove duplicates
+}
+
 // Business Cards API Routes
 app.get('/api/cards', async (c) => {
   const { DB } = c.env
@@ -38,16 +121,29 @@ app.get('/api/cards', async (c) => {
     const params = []
 
     if (search) {
-      // Use both FTS5 search and simple LIKE search for better coverage
-      query += ` WHERE (
-        bc.id IN (
+      // Generate search variants (hiragana <-> katakana)
+      const searchVariants = generateSearchVariants(search)
+      
+      // Build dynamic search conditions for all variants
+      const searchConditions = searchVariants.map(() => `
+        (bc.id IN (
           SELECT rowid FROM business_cards_fts 
           WHERE business_cards_fts MATCH ?
         ) OR 
         bc.name LIKE ? OR 
-        bc.company LIKE ?
-      )`
-      params.push(search, `%${search}%`, `%${search}%`)
+        bc.company LIKE ? OR
+        bc.department LIKE ? OR
+        bc.position LIKE ? OR
+        bc.notes LIKE ?)
+      `).join(' OR ')
+      
+      query += ` WHERE (${searchConditions})`
+      
+      // Add parameters for each search variant
+      searchVariants.forEach(variant => {
+        const likePattern = `%${variant}%`
+        params.push(variant, likePattern, likePattern, likePattern, likePattern, likePattern)
+      })
     }
 
     query += ` GROUP BY bc.id ORDER BY bc.created_at DESC LIMIT ? OFFSET ?`
@@ -393,25 +489,31 @@ app.get('/', (c) => {
                   </button>
                 </div>
 
-                <div className="flex gap-4">
-                  <input 
-                    type="text" 
-                    id="search-input" 
-                    placeholder="名前・会社名で検索..." 
-                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <button 
-                    id="search-btn" 
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200"
-                  >
-                    <i className="fas fa-search mr-2"></i>検索
-                  </button>
-                  <button 
-                    id="clear-search-btn" 
-                    className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition duration-200"
-                  >
-                    <i className="fas fa-times mr-2"></i>クリア
-                  </button>
+                <div className="space-y-3">
+                  <div className="flex gap-4">
+                    <input 
+                      type="text" 
+                      id="search-input" 
+                      placeholder="名前・会社名で検索（例: たなか、テック、田中）" 
+                      className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <button 
+                      id="search-btn" 
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200"
+                    >
+                      <i className="fas fa-search mr-2"></i>検索
+                    </button>
+                    <button 
+                      id="clear-search-btn" 
+                      className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition duration-200"
+                    >
+                      <i className="fas fa-times mr-2"></i>クリア
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    <i className="fas fa-info-circle mr-1"></i>
+                    ひらがな・カタカナ・漢字での検索に対応（例: 「たなか」で「田中」がヒット）
+                  </p>
                 </div>
               </div>
 
