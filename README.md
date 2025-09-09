@@ -10,9 +10,9 @@
   - タグ機能による分類
 
 ## URLs
-- **開発環境**: https://3000-i184visbb280hl2m4a86g-6532622b.e2b.dev
+- **本番環境**: https://3b7d38a9.meisiver2.pages.dev
 - **GitHub**: https://github.com/071230e-ai/-Ver2
-- **API Base**: https://3000-i184visbb280hl2m4a86g-6532622b.e2b.dev/api
+- **API Base**: https://3b7d38a9.meisiver2.pages.dev/api
 
 ## 完成済み機能
 
@@ -57,10 +57,10 @@
 ## データアーキテクチャ
 - **データモデル**: 正規化されたリレーショナル設計
 - **ストレージサービス**: 
-  - Cloudflare D1 SQLite データベース（名刺情報）
-  - **Cloudflare R2 Object Storage（画像ファイル）**
-- **検索機能**: FTS5 仮想テーブルによる全文検索
-- **データフロー**: Frontend → Hono API → D1 Database + R2 Storage
+  - **現在**: インメモリストレージ（デモ用）
+  - **将来**: Cloudflare D1 SQLite データベース（名刺情報）+ R2 Object Storage（画像ファイル）
+- **検索機能**: 文字列マッチング（実装済み）+ FTS5 仮想テーブル（将来対応）
+- **データフロー**: Frontend → Hono API → インメモリストレージ
 
 ## ユーザーガイド
 
@@ -114,15 +114,15 @@
 
 ## 推奨される次のステップ
 
-### 優先度: 高
-1. **Cloudflare Pages デプロイ**
-   - 本番データベース作成
-   - 実際のCloudflare Pages環境へのデプロイ
+### 優先度: 高（完了済み）
+1. **Cloudflare Pages デプロイ** ✅
+   - 本番環境デプロイ完了
+   - データベース設定をコメントアウトして安定稼働
 
-### 優先度: 中
-2. **GitHub連携**
-   - GitHubリポジトリ作成
-   - CI/CDパイプライン設定
+### 優先度: 中（完了済み）
+2. **GitHub連携** ✅
+   - GitHubリポジトリ作成・コード push 完了
+   - 継続的なバージョン管理体制構築
 
 ### 優先度: 低  
 3. **機能拡張**
@@ -131,9 +131,11 @@
    - 名刺画像OCR機能
 
 ## デプロイメント
-- **ステータス**: ✅ ローカル開発環境で稼働中
-- **技術スタック**: Hono + TypeScript + TailwindCSS + Cloudflare D1
-- **最終更新**: 2025-09-08
+- **ステータス**: ✅ 本番環境（Cloudflare Pages）で稼働中
+- **技術スタック**: Hono + TypeScript + TailwindCSS + Cloudflare Pages
+- **プロジェクト名**: meisiver2
+- **本番URL**: https://3b7d38a9.meisiver2.pages.dev
+- **最終更新**: 2025-09-09
 
 ## 開発コマンド
 
