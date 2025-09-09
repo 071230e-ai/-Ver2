@@ -7,6 +7,7 @@ import { renderer } from './renderer'
 type Bindings = {
   DB: D1Database;
   R2: R2Bucket;
+  AUTH_PASSWORD?: string;
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -19,6 +20,9 @@ app.use('/static/*', serveStatic({ root: './public' }))
 
 // Use JSX renderer
 app.use(renderer)
+
+// Authentication configuration
+const DEFAULT_PASSWORD = 'meishi2024' // デフォルトパスワード
 
 // Japanese text conversion utilities
 function hiraganaToKatakana(str: string): string {
@@ -109,6 +113,53 @@ function generateSearchVariants(search: string): string[] {
   
   return [...new Set(variants)] // Remove duplicates
 }
+
+// Authentication API Routes
+app.post('/api/auth/login', async (c) => {
+  try {
+    const { password } = await c.req.json()
+    
+    if (!password) {
+      return c.json({ error: 'Password is required' }, 400)
+    }
+
+    // Get password from environment variable or use default
+    const authPassword = c.env?.AUTH_PASSWORD || DEFAULT_PASSWORD
+    
+    if (password === authPassword) {
+      // Generate simple session token (you can make this more secure)
+      const sessionToken = btoa(`meishi-session-${Date.now()}-${Math.random()}`)
+      
+      return c.json({ 
+        success: true, 
+        message: 'Authentication successful',
+        token: sessionToken
+      })
+    } else {
+      return c.json({ error: 'Invalid password' }, 401)
+    }
+  } catch (error) {
+    console.error('Authentication error:', error)
+    return c.json({ error: 'Authentication failed' }, 500)
+  }
+})
+
+// Session validation endpoint
+app.get('/api/auth/validate', async (c) => {
+  const authHeader = c.req.header('Authorization')
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ valid: false }, 401)
+  }
+  
+  // Simple token validation (in production, you'd validate against a database or JWT)
+  const token = authHeader.substring(7)
+  if (token && token.startsWith('bWVpc2hpLXNlc3Npb24t')) { // base64 encoded "meishi-session-"
+    return c.json({ valid: true })
+  }
+  
+  return c.json({ valid: false }, 401)
+})
 
 // Business Cards API Routes
 app.get('/api/cards', async (c) => {
@@ -710,20 +761,76 @@ app.delete('/api/cards/:id/image', async (c) => {
   }
 })
 
-// Main page with JSX
+// Main page with JSX (with Authentication)
 app.get('/', (c) => {
   return c.render(
     <div>
-      <div className="min-h-screen bg-gray-50">
+      {/* Login Screen */}
+      <div id="login-screen" className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md w-full space-y-8">
+          <div>
+            <div className="text-center">
+              <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
+                <i className="fas fa-address-card mr-3 text-blue-600"></i>
+                社内名刺管理システム
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                アクセスにはパスワードが必要です
+              </p>
+            </div>
+          </div>
+          <form className="mt-8 space-y-6" id="login-form">
+            <div>
+              <label htmlFor="password" className="sr-only">
+                パスワード
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="パスワードを入力してください"
+              />
+            </div>
+            <div>
+              <button
+                type="submit"
+                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <i className="fas fa-sign-in-alt mr-2"></i>
+                ログイン
+              </button>
+            </div>
+            <div id="login-error" className="hidden">
+              <p className="text-red-600 text-sm text-center">パスワードが間違っています</p>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* Main Application (hidden by default) */}
+      <div id="main-app" className="min-h-screen bg-gray-50" style="display: none;">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">
-              <i className="fas fa-address-card mr-3 text-blue-600"></i>
-              社内名刺管理システム
-            </h1>
-            <p className="text-lg text-gray-600">
-              名刺の共有・管理を効率的に行うWebアプリケーション
-            </p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-4xl font-bold text-gray-900 mb-4">
+                  <i className="fas fa-address-card mr-3 text-blue-600"></i>
+                  社内名刺管理システム
+                </h1>
+                <p className="text-lg text-gray-600">
+                  名刺の共有・管理を効率的に行うWebアプリケーション
+                </p>
+              </div>
+              <button 
+                id="logout-btn" 
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md transition duration-200"
+              >
+                <i className="fas fa-sign-out-alt mr-2"></i>ログアウト
+              </button>
+            </div>
           </div>
 
           <div id="app">
@@ -889,6 +996,7 @@ app.get('/', (c) => {
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script src="/static/app.js"></script>
     </div>
   )

@@ -7,8 +7,19 @@ class BusinessCardManager {
   }
 
   async init() {
-    this.setupEventListeners();
-    await this.loadCards();
+    // Wait for authentication before initializing
+    this.waitForAuth();
+  }
+
+  waitForAuth() {
+    // Check if user is authenticated every 100ms
+    const authCheck = setInterval(() => {
+      if (window.authManager && document.getElementById('main-app').style.display !== 'none') {
+        clearInterval(authCheck);
+        this.setupEventListeners();
+        this.loadCards();
+      }
+    }, 100);
   }
 
   setupEventListeners() {
