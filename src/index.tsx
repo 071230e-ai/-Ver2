@@ -115,6 +115,14 @@ app.get('/api/cards', async (c) => {
   const { DB } = c.env
   const { search, limit = '50', offset = '0' } = c.req.query()
 
+  // If no database is configured, return sample data
+  if (!DB) {
+    return c.json({ 
+      cards: [],
+      message: 'Database not configured. Please set up D1 database for full functionality.'
+    })
+  }
+
   try {
     let query = `
       SELECT 
@@ -181,6 +189,10 @@ app.get('/api/cards/:id', async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
 
+  if (!DB) {
+    return c.json({ error: 'Database not configured' }, 503)
+  }
+
   try {
     const { results } = await DB.prepare(`
       SELECT 
@@ -213,6 +225,10 @@ app.get('/api/cards/:id', async (c) => {
 
 app.post('/api/cards', async (c) => {
   const { DB } = c.env
+
+  if (!DB) {
+    return c.json({ error: 'Database not configured' }, 503)
+  }
 
   try {
     const cardData = await c.req.json()

@@ -6,17 +6,17 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "business-cards-production",
-      "database_id": "local-development-db-id"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "R2",
-      "bucket_name": "business-cards-images"
-    }
-  ]
+  // "d1_databases": [
+  //   {
+  //     "binding": "DB", 
+  //     "database_name": "business-cards-production",
+  //     "database_id": "your-production-database-id"
+  //   }
+  // ],
+  // "r2_buckets": [
+  //   {
+  //     "binding": "R2",
+  //     "bucket_name": "business-cards-images"
+  //   }
+  // ]
 }
