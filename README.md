@@ -11,6 +11,7 @@
 
 ## URLs
 - **本番環境**: https://3b7d38a9.meisiver2.pages.dev
+- **開発環境**: https://3000-i184visbb280hl2m4a86g-6532622b.e2b.dev（D1データベース対応）
 - **GitHub**: https://github.com/071230e-ai/-Ver2
 - **API Base**: https://3b7d38a9.meisiver2.pages.dev/api
 
@@ -57,10 +58,13 @@
 ## データアーキテクチャ
 - **データモデル**: 正規化されたリレーショナル設計
 - **ストレージサービス**: 
-  - **現在**: インメモリストレージ（デモ用）
-  - **将来**: Cloudflare D1 SQLite データベース（名刺情報）+ R2 Object Storage（画像ファイル）
-- **検索機能**: 文字列マッチング（実装済み）+ FTS5 仮想テーブル（将来対応）
-- **データフロー**: Frontend → Hono API → インメモリストレージ
+  - **開発環境**: Cloudflare D1 SQLite データベース（ローカル）✅
+  - **本番環境**: インメモリストレージ（一時的）
+  - **将来**: Cloudflare D1 + R2 Object Storage（本番環境）
+- **検索機能**: 
+  - **開発環境**: FTS5 全文検索 + ひらがな変換対応 ✅
+  - **本番環境**: 文字列マッチング（一時的）
+- **データフロー**: Frontend → Hono API → D1 Database（開発）/ インメモリ（本番）
 
 ## ユーザーガイド
 
@@ -132,10 +136,21 @@
 
 ## デプロイメント
 - **ステータス**: ✅ 本番環境（Cloudflare Pages）で稼働中
-- **技術スタック**: Hono + TypeScript + TailwindCSS + Cloudflare Pages
+- **技術スタック**: Hono + TypeScript + TailwindCSS + Cloudflare Pages + Cloudflare D1
 - **プロジェクト名**: meisiver2
 - **本番URL**: https://3b7d38a9.meisiver2.pages.dev
+- **開発URL**: https://3000-i184visbb280hl2m4a86g-6532622b.e2b.dev（D1データベース対応）
 - **最終更新**: 2025-09-09
+
+### 環境別機能状況
+| 機能 | 開発環境 | 本番環境 |
+|---|---|---|
+| D1データベース | ✅ 完全対応 | ⚠️ 設定待ち |
+| 名刺CRUD操作 | ✅ 永続化 | ⚠️ 一時的 |
+| 全文検索 | ✅ FTS5対応 | ⚠️ 文字列マッチ |
+| ひらがな検索 | ✅ 完全対応 | ✅ 完全対応 |
+| タグ機能 | ✅ DB保存 | ⚠️ 一時的 |
+| 画像アップロード | ✅ ローカル保存 | ✅ 一時的保存 |
 
 ## 開発コマンド
 
