@@ -115,11 +115,32 @@ app.get('/api/cards', async (c) => {
   const { DB } = c.env
   const { search, limit = '50', offset = '0' } = c.req.query()
 
-  // If no database is configured, return sample data
+  // If no database is configured, return in-memory data
   if (!DB) {
+    let filteredCards = inMemoryCards
+
+    // Apply search filter if provided
+    if (search) {
+      const searchLower = search.toLowerCase()
+      filteredCards = inMemoryCards.filter(card => 
+        card.name.toLowerCase().includes(searchLower) ||
+        card.company.toLowerCase().includes(searchLower) ||
+        card.department?.toLowerCase().includes(searchLower) ||
+        card.position?.toLowerCase().includes(searchLower) ||
+        card.notes?.toLowerCase().includes(searchLower) ||
+        (card.tags && card.tags.some((tag: string) => tag.toLowerCase().includes(searchLower)))
+      )
+    }
+
+    // Apply pagination
+    const startIndex = parseInt(offset)
+    const limitNum = parseInt(limit)
+    const paginatedCards = filteredCards.slice(startIndex, startIndex + limitNum)
+
     return c.json({ 
-      cards: [],
-      message: 'Database not configured. Please set up D1 database for full functionality.'
+      cards: paginatedCards,
+      total: filteredCards.length,
+      message: inMemoryCards.length === 0 ? 'No cards added yet. Database is running in memory mode.' : undefined
     })
   }
 
@@ -223,12 +244,14 @@ app.get('/api/cards/:id', async (c) => {
   }
 })
 
+// In-memory storage for when database is not configured
+let inMemoryCards: any[] = []
+let inMemoryTags: any[] = []
+let cardIdCounter = 1
+let tagIdCounter = 1
+
 app.post('/api/cards', async (c) => {
   const { DB } = c.env
-
-  if (!DB) {
-    return c.json({ error: 'Database not configured' }, 503)
-  }
 
   try {
     const cardData = await c.req.json()
@@ -239,6 +262,44 @@ app.post('/api/cards', async (c) => {
 
     if (!name || !company) {
       return c.json({ error: 'Name and company are required' }, 400)
+    }
+
+    if (!DB) {
+      // Use in-memory storage when database is not configured
+      const now = new Date().toISOString()
+      const cardId = cardIdCounter++
+      
+      const newCard = {
+        id: cardId,
+        name, company, department, position, phone, email,
+        address, website, registered_by, notes,
+        image_url: null,
+        created_at: now,
+        updated_at: now,
+        tags: tags || [],
+        tag_colors: tags.map(() => '#3B82F6')
+      }
+      
+      // Add tags to in-memory tags if they don't exist
+      if (tags && tags.length > 0) {
+        for (const tagName of tags) {
+          if (!inMemoryTags.find(t => t.name === tagName)) {
+            inMemoryTags.push({
+              id: tagIdCounter++,
+              name: tagName,
+              color: '#3B82F6',
+              created_at: now
+            })
+          }
+        }
+      }
+      
+      inMemoryCards.push(newCard)
+      
+      return c.json({ 
+        id: cardId, 
+        message: 'Business card created successfully (in-memory)' 
+      })
     }
 
     // Insert business card

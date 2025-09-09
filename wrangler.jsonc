@@ -6,13 +6,13 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "d1_databases": [
-    {
-      "binding": "DB", 
-      "database_name": "business-cards-production",
-      "database_id": "qh0wZb-UaLoIzrAxK3hzOegtfaOSbkQVKkZ2CVzt"
-    }
-  ],
+  // "d1_databases": [
+  //   {
+  //     "binding": "DB", 
+  //     "database_name": "business-cards-production",
+  //     "database_id": "qh0wZb-UaLoIzrAxK3hzOegtfaOSbkQVKkZ2CVzt"
+  //   }
+  // ],
   // "r2_buckets": [
   //   {
   //     "binding": "R2",
