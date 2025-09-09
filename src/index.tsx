@@ -211,7 +211,14 @@ app.get('/api/cards/:id', async (c) => {
   const id = c.req.param('id')
 
   if (!DB) {
-    return c.json({ error: 'Database not configured' }, 503)
+    // Handle in-memory storage
+    const card = inMemoryCards.find(card => card.id == id)
+    
+    if (!card) {
+      return c.json({ error: 'Business card not found' }, 404)
+    }
+
+    return c.json({ card })
   }
 
   try {
@@ -247,6 +254,7 @@ app.get('/api/cards/:id', async (c) => {
 // In-memory storage for when database is not configured
 let inMemoryCards: any[] = []
 let inMemoryTags: any[] = []
+let inMemoryImages: { [key: string]: { data: string; type: string } } = {}
 let cardIdCounter = 1
 let tagIdCounter = 1
 
@@ -358,7 +366,44 @@ app.put('/api/cards/:id', async (c) => {
       return c.json({ error: 'Name and company are required' }, 400)
     }
 
-    // Update business card
+    if (!DB) {
+      // Handle in-memory storage
+      const cardIndex = inMemoryCards.findIndex(card => card.id == id)
+      
+      if (cardIndex === -1) {
+        return c.json({ error: 'Business card not found' }, 404)
+      }
+
+      const now = new Date().toISOString()
+      
+      // Update card in memory
+      inMemoryCards[cardIndex] = {
+        ...inMemoryCards[cardIndex],
+        name, company, department, position, phone, email,
+        address, website, notes,
+        tags: tags || [],
+        tag_colors: tags.map(() => '#3B82F6'),
+        updated_at: now
+      }
+      
+      // Add new tags to in-memory tags if they don't exist
+      if (tags && tags.length > 0) {
+        for (const tagName of tags) {
+          if (!inMemoryTags.find(t => t.name === tagName)) {
+            inMemoryTags.push({
+              id: tagIdCounter++,
+              name: tagName,
+              color: '#3B82F6',
+              created_at: now
+            })
+          }
+        }
+      }
+
+      return c.json({ message: 'Business card updated successfully (in-memory)' })
+    }
+
+    // Update business card in database
     await DB.prepare(`
       UPDATE business_cards SET 
         name = ?, company = ?, department = ?, position = ?, 
@@ -401,6 +446,29 @@ app.delete('/api/cards/:id', async (c) => {
   const id = c.req.param('id')
 
   try {
+    if (!DB) {
+      // Handle in-memory storage
+      const cardIndex = inMemoryCards.findIndex(card => card.id == id)
+      
+      if (cardIndex === -1) {
+        return c.json({ error: 'Business card not found' }, 404)
+      }
+
+      // Delete associated image from memory if exists
+      const card = inMemoryCards[cardIndex]
+      if (card.image_url) {
+        const filename = card.image_url.split('/').pop()
+        if (filename && inMemoryImages[filename]) {
+          delete inMemoryImages[filename]
+        }
+      }
+
+      // Remove card from memory
+      inMemoryCards.splice(cardIndex, 1)
+
+      return c.json({ message: 'Business card deleted successfully (in-memory)' })
+    }
+
     const result = await DB.prepare(`DELETE FROM business_cards WHERE id = ?`).bind(id).run()
 
     if (result.changes === 0) {
@@ -417,6 +485,30 @@ app.delete('/api/cards/:id', async (c) => {
 // Tags API
 app.get('/api/tags', async (c) => {
   const { DB } = c.env
+
+  if (!DB) {
+    // Handle in-memory storage
+    const tagCounts = inMemoryTags.map(tag => {
+      const count = inMemoryCards.filter(card => 
+        card.tags && card.tags.includes(tag.name)
+      ).length
+      
+      return {
+        ...tag,
+        count
+      }
+    })
+    
+    // Sort by count DESC, name ASC
+    tagCounts.sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count
+      }
+      return a.name.localeCompare(b.name)
+    })
+
+    return c.json({ tags: tagCounts })
+  }
 
   try {
     const { results } = await DB.prepare(`
@@ -436,7 +528,7 @@ app.get('/api/tags', async (c) => {
 
 // Image Upload API
 app.post('/api/cards/:id/image', async (c) => {
-  const { R2 } = c.env
+  const { R2, DB } = c.env
   const id = c.req.param('id')
 
   try {
@@ -459,19 +551,42 @@ app.post('/api/cards/:id/image', async (c) => {
 
     // Generate unique filename
     const timestamp = Date.now()
-    const extension = file.name.split('.').pop()
+    const extension = file.name.split('.').pop() || 'jpg'
     const fileName = `business-card-${id}-${timestamp}.${extension}`
+    const imageUrl = `/api/images/${fileName}`
+
+    if (!R2 || !DB) {
+      // Use in-memory storage when R2/DB is not configured
+      const arrayBuffer = await file.arrayBuffer()
+      const base64Data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+      
+      // Store image in memory
+      inMemoryImages[fileName] = {
+        data: base64Data,
+        type: file.type
+      }
+      
+      // Update card in memory
+      const cardIndex = inMemoryCards.findIndex(card => card.id == id)
+      if (cardIndex !== -1) {
+        inMemoryCards[cardIndex].image_url = imageUrl
+        inMemoryCards[cardIndex].updated_at = new Date().toISOString()
+      }
+      
+      return c.json({ 
+        message: 'Image uploaded successfully (in-memory)',
+        image_url: imageUrl 
+      })
+    }
     
-    // Upload to R2
+    // Upload to R2 and update database (when available)
     await R2.put(fileName, file.stream(), {
       httpMetadata: {
         contentType: file.type,
       },
     })
 
-    // Update database with image URL
-    const imageUrl = `/api/images/${fileName}`
-    await c.env.DB.prepare(`
+    await DB.prepare(`
       UPDATE business_cards SET image_url = ?, updated_at = CURRENT_TIMESTAMP 
       WHERE id = ?
     `).bind(imageUrl, id).run()
@@ -492,6 +607,27 @@ app.get('/api/images/:filename', async (c) => {
   const filename = c.req.param('filename')
 
   try {
+    // Check in-memory storage first
+    if (inMemoryImages[filename]) {
+      const imageData = inMemoryImages[filename]
+      const binaryString = atob(imageData.data)
+      const bytes = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+      }
+      
+      return new Response(bytes.buffer, {
+        headers: {
+          'Content-Type': imageData.type,
+          'Cache-Control': 'public, max-age=31536000', // 1 year cache
+        },
+      })
+    }
+
+    if (!R2) {
+      return c.json({ error: 'Image not found' }, 404)
+    }
+
     const object = await R2.get(filename)
     
     if (!object) {
@@ -516,7 +652,32 @@ app.delete('/api/cards/:id/image', async (c) => {
   const id = c.req.param('id')
 
   try {
-    // Get current image URL
+    if (!DB) {
+      // Handle in-memory storage
+      const cardIndex = inMemoryCards.findIndex(card => card.id == id)
+      
+      if (cardIndex === -1) {
+        return c.json({ error: 'Business card not found' }, 404)
+      }
+
+      const imageUrl = inMemoryCards[cardIndex].image_url
+      
+      if (imageUrl) {
+        // Extract filename from URL and delete from memory
+        const filename = imageUrl.split('/').pop()
+        if (filename && inMemoryImages[filename]) {
+          delete inMemoryImages[filename]
+        }
+      }
+
+      // Update card in memory
+      inMemoryCards[cardIndex].image_url = null
+      inMemoryCards[cardIndex].updated_at = new Date().toISOString()
+
+      return c.json({ message: 'Image deleted successfully (in-memory)' })
+    }
+
+    // Get current image URL from database
     const { results } = await DB.prepare(`
       SELECT image_url FROM business_cards WHERE id = ?
     `).bind(id).all()
@@ -530,7 +691,7 @@ app.delete('/api/cards/:id/image', async (c) => {
     if (imageUrl) {
       // Extract filename from URL
       const filename = imageUrl.split('/').pop()
-      if (filename) {
+      if (filename && R2) {
         // Delete from R2
         await R2.delete(filename)
       }
