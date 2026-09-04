@@ -339,7 +339,9 @@ class BusinessCardManager {
       return;
     }
 
-    const darkThreshold = 242;
+    // Detect actual printed content rather than faint scanner shadows or
+    // near-white background. This intentionally trims much more aggressively
+    // than the previous implementation so the business card fills the phone.
     const rowCounts = new Uint32Array(analysisHeight);
     const colCounts = new Uint32Array(analysisWidth);
 
@@ -352,17 +354,23 @@ class BusinessCardManager {
         const r = pixels[i];
         const g = pixels[i + 1];
         const b = pixels[i + 2];
-        if (r < darkThreshold || g < darkThreshold || b < darkThreshold) {
+        const minChannel = Math.min(r, g, b);
+        const maxChannel = Math.max(r, g, b);
+        const saturation = maxChannel - minChannel;
+
+        // Dark/medium text, logos and sufficiently saturated colors count as
+        // card content. Pale gray/white background and shadows do not.
+        const isContent = minChannel < 230 || (saturation > 34 && minChannel < 246);
+        if (isContent) {
           rowCounts[y] += 1;
           colCounts[x] += 1;
         }
       }
     }
 
-    // Require a small amount of content in a row/column so isolated dust or
-    // scanner noise does not prevent whitespace trimming.
-    const rowMinimum = Math.max(2, Math.round(analysisWidth * 0.003));
-    const colMinimum = Math.max(2, Math.round(analysisHeight * 0.006));
+    // Ignore isolated specks and faint edge noise.
+    const rowMinimum = Math.max(3, Math.round(analysisWidth * 0.006));
+    const colMinimum = Math.max(3, Math.round(analysisHeight * 0.012));
 
     let top = 0;
     let bottom = analysisHeight - 1;
@@ -378,11 +386,12 @@ class BusinessCardManager {
     let cropHeight = bottom - top + 1;
 
     // If detection produced an implausibly small area, do not crop.
-    if (cropWidth < analysisWidth * 0.2 || cropHeight < analysisHeight * 0.18) return;
+    if (cropWidth < analysisWidth * 0.18 || cropHeight < analysisHeight * 0.14) return;
 
-    // Add a small safety margin around the detected card content.
-    const padX = Math.max(3, Math.round(cropWidth * 0.025));
-    const padY = Math.max(3, Math.round(cropHeight * 0.04));
+    // Only keep a very small safety margin. Do not expand back to 91:55,
+    // because that was reintroducing the large white margins on some images.
+    const padX = Math.max(3, Math.round(cropWidth * 0.012));
+    const padY = Math.max(3, Math.round(cropHeight * 0.018));
     left = Math.max(0, left - padX);
     right = Math.min(analysisWidth - 1, right + padX);
     top = Math.max(0, top - padY);
@@ -390,31 +399,10 @@ class BusinessCardManager {
     cropWidth = right - left + 1;
     cropHeight = bottom - top + 1;
 
-    // Expand (never shrink) the crop to approximately the standard Japanese
-    // business-card ratio 91:55. This avoids cutting logos/text near edges.
-    const targetRatio = 91 / 55;
-    const currentRatio = cropWidth / cropHeight;
-
-    if (currentRatio < targetRatio) {
-      const desiredWidth = Math.min(analysisWidth, Math.round(cropHeight * targetRatio));
-      const extra = desiredWidth - cropWidth;
-      left = Math.max(0, left - Math.floor(extra / 2));
-      right = Math.min(analysisWidth - 1, left + desiredWidth - 1);
-      left = Math.max(0, right - desiredWidth + 1);
-    } else if (currentRatio > targetRatio) {
-      const desiredHeight = Math.min(analysisHeight, Math.round(cropWidth / targetRatio));
-      const extra = desiredHeight - cropHeight;
-      top = Math.max(0, top - Math.floor(extra / 2));
-      bottom = Math.min(analysisHeight - 1, top + desiredHeight - 1);
-      top = Math.max(0, bottom - desiredHeight + 1);
-    }
-
-    cropWidth = right - left + 1;
-    cropHeight = bottom - top + 1;
-
-    // Do not replace the image when trimming would barely change the display.
+    // Crop even when the gain is modest; the user's priority is maximum
+    // readable card size on mobile.
     const retainedArea = (cropWidth * cropHeight) / (analysisWidth * analysisHeight);
-    if (retainedArea > 0.94) return;
+    if (retainedArea > 0.985) return;
 
     const sourceX = left / scale;
     const sourceY = top / scale;
@@ -442,7 +430,7 @@ class BusinessCardManager {
     );
 
     try {
-      img.src = output.toDataURL('image/jpeg', 0.92);
+      img.src = output.toDataURL('image/jpeg', 0.94);
       img.dataset.autoCropped = 'true';
     } catch (error) {
       img.src = originalSrc;
