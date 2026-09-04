@@ -84,9 +84,14 @@ class BusinessCardManager {
       }
     });
 
-    // Close modal on backdrop click
+    // Close modal when clicking outside
     document.getElementById('card-modal').addEventListener('click', (e) => {
       if (e.target.id === 'card-modal') this.closeModal();
+    });
+
+    // Close enlarged image with Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closeImageViewer();
     });
   }
 
@@ -159,8 +164,6 @@ class BusinessCardManager {
     }
   }
 
-
-
   renderCards(cards) {
     const container = document.getElementById('cards-container');
     
@@ -175,11 +178,17 @@ class BusinessCardManager {
     }
 
     const cardsHTML = cards.map(card => `
-      <article class="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
+      <article class="business-card-item bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
         ${card.image_url ? `
-          <div class="mb-4 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-            <img src="${this.escapeHtml(card.image_url)}" alt="${this.escapeHtml(card.name)}さんの名刺画像" class="w-full h-auto max-h-64 object-contain">
-          </div>
+          <button type="button" class="business-card-image-frame mb-4" aria-label="${this.escapeHtml(card.name)}さんの名刺画像を拡大表示">
+            <img
+              src="${this.escapeHtml(card.image_url)}"
+              data-original-src="${this.escapeHtml(card.image_url)}"
+              alt="${this.escapeHtml(card.name)}さんの名刺画像"
+              class="business-card-image"
+              loading="lazy"
+            >
+          </button>
         ` : ''}
         
         <div class="flex justify-between items-start mb-4">
@@ -261,6 +270,214 @@ class BusinessCardManager {
         ${cardsHTML}
       </div>
     `;
+
+    this.enhanceCardImages(container);
+  }
+
+  enhanceCardImages(container) {
+    const frames = container.querySelectorAll('.business-card-image-frame');
+
+    frames.forEach((frame) => {
+      const img = frame.querySelector('.business-card-image');
+      if (!img) return;
+
+      frame.addEventListener('click', () => {
+        this.openImageViewer(img.src, img.alt);
+      });
+
+      const cropWhenReady = () => {
+        this.cropBusinessCardWhitespace(img).catch(() => {
+          // Keep the original image if automatic cropping fails.
+        });
+      };
+
+      if (img.complete && img.naturalWidth > 0) {
+        cropWhenReady();
+      } else {
+        img.addEventListener('load', cropWhenReady, { once: true });
+      }
+    });
+  }
+
+  async cropBusinessCardWhitespace(img) {
+    const originalSrc = img.dataset.originalSrc || img.src;
+    const source = new Image();
+    source.decoding = 'async';
+    source.src = originalSrc;
+
+    if (!source.complete) {
+      await new Promise((resolve, reject) => {
+        source.onload = resolve;
+        source.onerror = reject;
+      });
+    }
+
+    const width = source.naturalWidth;
+    const height = source.naturalHeight;
+    if (!width || !height || width < 80 || height < 50) return;
+
+    // Work on a reduced canvas for fast mobile processing.
+    const maxAnalysisWidth = 1000;
+    const scale = Math.min(1, maxAnalysisWidth / width);
+    const analysisWidth = Math.max(1, Math.round(width * scale));
+    const analysisHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = analysisWidth;
+    canvas.height = analysisHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    ctx.drawImage(source, 0, 0, analysisWidth, analysisHeight);
+
+    let pixels;
+    try {
+      pixels = ctx.getImageData(0, 0, analysisWidth, analysisHeight).data;
+    } catch (error) {
+      // Canvas may be unavailable for a cross-origin image. In that case,
+      // leave the original image untouched.
+      return;
+    }
+
+    const darkThreshold = 242;
+    const rowCounts = new Uint32Array(analysisHeight);
+    const colCounts = new Uint32Array(analysisWidth);
+
+    for (let y = 0; y < analysisHeight; y += 1) {
+      for (let x = 0; x < analysisWidth; x += 1) {
+        const i = (y * analysisWidth + x) * 4;
+        const alpha = pixels[i + 3];
+        if (alpha < 20) continue;
+
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        if (r < darkThreshold || g < darkThreshold || b < darkThreshold) {
+          rowCounts[y] += 1;
+          colCounts[x] += 1;
+        }
+      }
+    }
+
+    // Require a small amount of content in a row/column so isolated dust or
+    // scanner noise does not prevent whitespace trimming.
+    const rowMinimum = Math.max(2, Math.round(analysisWidth * 0.003));
+    const colMinimum = Math.max(2, Math.round(analysisHeight * 0.006));
+
+    let top = 0;
+    let bottom = analysisHeight - 1;
+    let left = 0;
+    let right = analysisWidth - 1;
+
+    while (top < bottom && rowCounts[top] < rowMinimum) top += 1;
+    while (bottom > top && rowCounts[bottom] < rowMinimum) bottom -= 1;
+    while (left < right && colCounts[left] < colMinimum) left += 1;
+    while (right > left && colCounts[right] < colMinimum) right -= 1;
+
+    let cropWidth = right - left + 1;
+    let cropHeight = bottom - top + 1;
+
+    // If detection produced an implausibly small area, do not crop.
+    if (cropWidth < analysisWidth * 0.2 || cropHeight < analysisHeight * 0.18) return;
+
+    // Add a small safety margin around the detected card content.
+    const padX = Math.max(3, Math.round(cropWidth * 0.025));
+    const padY = Math.max(3, Math.round(cropHeight * 0.04));
+    left = Math.max(0, left - padX);
+    right = Math.min(analysisWidth - 1, right + padX);
+    top = Math.max(0, top - padY);
+    bottom = Math.min(analysisHeight - 1, bottom + padY);
+    cropWidth = right - left + 1;
+    cropHeight = bottom - top + 1;
+
+    // Expand (never shrink) the crop to approximately the standard Japanese
+    // business-card ratio 91:55. This avoids cutting logos/text near edges.
+    const targetRatio = 91 / 55;
+    const currentRatio = cropWidth / cropHeight;
+
+    if (currentRatio < targetRatio) {
+      const desiredWidth = Math.min(analysisWidth, Math.round(cropHeight * targetRatio));
+      const extra = desiredWidth - cropWidth;
+      left = Math.max(0, left - Math.floor(extra / 2));
+      right = Math.min(analysisWidth - 1, left + desiredWidth - 1);
+      left = Math.max(0, right - desiredWidth + 1);
+    } else if (currentRatio > targetRatio) {
+      const desiredHeight = Math.min(analysisHeight, Math.round(cropWidth / targetRatio));
+      const extra = desiredHeight - cropHeight;
+      top = Math.max(0, top - Math.floor(extra / 2));
+      bottom = Math.min(analysisHeight - 1, top + desiredHeight - 1);
+      top = Math.max(0, bottom - desiredHeight + 1);
+    }
+
+    cropWidth = right - left + 1;
+    cropHeight = bottom - top + 1;
+
+    // Do not replace the image when trimming would barely change the display.
+    const retainedArea = (cropWidth * cropHeight) / (analysisWidth * analysisHeight);
+    if (retainedArea > 0.94) return;
+
+    const sourceX = left / scale;
+    const sourceY = top / scale;
+    const sourceWidth = cropWidth / scale;
+    const sourceHeight = cropHeight / scale;
+
+    const output = document.createElement('canvas');
+    output.width = Math.max(1, Math.round(sourceWidth));
+    output.height = Math.max(1, Math.round(sourceHeight));
+    const outputCtx = output.getContext('2d');
+    if (!outputCtx) return;
+
+    outputCtx.fillStyle = '#ffffff';
+    outputCtx.fillRect(0, 0, output.width, output.height);
+    outputCtx.drawImage(
+      source,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      output.width,
+      output.height
+    );
+
+    try {
+      img.src = output.toDataURL('image/jpeg', 0.92);
+      img.dataset.autoCropped = 'true';
+    } catch (error) {
+      img.src = originalSrc;
+    }
+  }
+
+  openImageViewer(src, alt = '名刺画像') {
+    this.closeImageViewer();
+
+    const viewer = document.createElement('div');
+    viewer.id = 'business-card-image-viewer';
+    viewer.className = 'business-card-image-viewer';
+    viewer.innerHTML = `
+      <div class="business-card-image-viewer__backdrop" data-close-viewer></div>
+      <div class="business-card-image-viewer__dialog" role="dialog" aria-modal="true" aria-label="名刺画像の拡大表示">
+        <img class="business-card-image-viewer__image" src="${this.escapeHtml(src)}" alt="${this.escapeHtml(alt)}">
+        <button type="button" class="business-card-image-viewer__close" aria-label="拡大表示を閉じる" data-close-viewer>
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    `;
+
+    viewer.querySelectorAll('[data-close-viewer]').forEach((element) => {
+      element.addEventListener('click', () => this.closeImageViewer());
+    });
+
+    document.body.appendChild(viewer);
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeImageViewer() {
+    const viewer = document.getElementById('business-card-image-viewer');
+    if (!viewer) return;
+    viewer.remove();
+    document.body.style.overflow = 'auto';
   }
 
   openModal(card = null) {
@@ -427,8 +644,6 @@ class BusinessCardManager {
       this.showError('名刺の読み込みに失敗しました');
     }
   }
-
-
 
   handleSearch() {
     const search = document.getElementById('search-input').value.trim();
