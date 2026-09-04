@@ -130,12 +130,32 @@ class BusinessCardManager {
     try {
       const params = new URLSearchParams(filters);
       const response = await axios.get(`/api/cards?${params}`);
-      const cards = response.data.cards;
+      const data = response.data;
+      const cards = data.cards;
+      
+      // Update count display
+      this.updateCardCount(data.totalCount, data.filteredCount, filters.search);
       
       this.renderCards(cards);
     } catch (error) {
       console.error('Error loading cards:', error);
       this.showError('名刺一覧の読み込みに失敗しました');
+    }
+  }
+
+  updateCardCount(totalCount, filteredCount, searchTerm) {
+    const countElement = document.getElementById('count-text');
+    if (!countElement) return;
+
+    // Check if any filters are applied (currently only search, but extensible)
+    const hasFilters = searchTerm && searchTerm.trim() !== '';
+
+    if (hasFilters) {
+      // During search/filtering: show "Display Count: X / Total Count: Y"
+      countElement.textContent = `表示件数：${filteredCount}件／登録件数：${totalCount}件`;
+    } else {
+      // Normal view: show "Total Count: X"
+      countElement.textContent = `登録件数：${totalCount}件`;
     }
   }
 

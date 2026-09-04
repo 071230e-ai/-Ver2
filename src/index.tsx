@@ -169,6 +169,7 @@ app.get('/api/cards', async (c) => {
   // If no database is configured, return in-memory data
   if (!DB) {
     let filteredCards = inMemoryCards
+    const totalCount = inMemoryCards.length
 
     // Apply search filter if provided
     if (search) {
@@ -190,13 +191,100 @@ app.get('/api/cards', async (c) => {
 
     return c.json({ 
       cards: paginatedCards,
-      total: filteredCards.length,
+      total: filteredCards.length, // for backward compatibility
+      totalCount: totalCount,
+      filteredCount: filteredCards.length,
       message: inMemoryCards.length === 0 ? 'No cards added yet. Database is running in memory mode.' : undefined
     })
   }
 
   try {
-    let query = `
+    // Common function to build WHERE conditions and parameters
+    const buildWhereConditions = (includeSearch: boolean = false) => {
+      let conditions: string[] = []
+      let params: any[] = []
+
+      // Base permission conditions (currently admin-only system, all cards visible)
+      // Future enhancement: Add user-based filtering here
+      // Example: conditions.push('bc.registered_by = ?'); params.push(currentUser);
+
+      // Add search conditions if provided
+      if (includeSearch && search) {
+        const searchVariants = generateSearchVariants(search)
+        
+        const searchConditions = searchVariants.map(() => `
+          (bc.id IN (
+            SELECT rowid FROM business_cards_fts 
+            WHERE business_cards_fts MATCH ?
+          ) OR 
+          bc.name LIKE ? OR 
+          bc.company LIKE ? OR
+          bc.department LIKE ? OR
+          bc.position LIKE ? OR
+          bc.notes LIKE ? OR
+          bc.id IN (
+            SELECT bct2.business_card_id 
+            FROM business_card_tags bct2
+            JOIN tags t2 ON bct2.tag_id = t2.id
+            WHERE t2.name LIKE ?
+          ))
+        `).join(' OR ')
+        
+        conditions.push(`(${searchConditions})`)
+        
+        // Add parameters for each search variant (7 parameters per variant)
+        searchVariants.forEach(variant => {
+          const likePattern = `%${variant}%`
+          params.push(variant, likePattern, likePattern, likePattern, likePattern, likePattern, likePattern)
+        })
+      }
+
+      return {
+        whereClause: conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '',
+        params
+      }
+    }
+
+    const hasSearch = search && search.trim() !== ''
+
+    // Build queries with shared conditions
+    let totalCount: number
+    let filteredCount: number
+
+    if (hasSearch) {
+      // When searching: need both total and filtered counts
+      const totalConditions = buildWhereConditions(false)
+      const filteredConditions = buildWhereConditions(true)
+
+      const totalCountQuery = `SELECT COUNT(*) as count FROM business_cards bc${totalConditions.whereClause}`
+      const filteredCountQuery = `
+        SELECT COUNT(DISTINCT bc.id) as count 
+        FROM business_cards bc
+        LEFT JOIN business_card_tags bct ON bc.id = bct.business_card_id
+        LEFT JOIN tags t ON bct.tag_id = t.id
+        ${filteredConditions.whereClause}
+      `
+
+      const [totalCountResult, filteredCountResult] = await Promise.all([
+        DB.prepare(totalCountQuery).bind(...totalConditions.params).all(),
+        DB.prepare(filteredCountQuery).bind(...filteredConditions.params).all()
+      ])
+
+      totalCount = totalCountResult.results[0]?.count || 0
+      filteredCount = filteredCountResult.results[0]?.count || 0
+    } else {
+      // When not searching: total and filtered are the same, run only one query
+      const conditions = buildWhereConditions(false)
+      const countQuery = `SELECT COUNT(*) as count FROM business_cards bc${conditions.whereClause}`
+      
+      const countResult = await DB.prepare(countQuery).bind(...conditions.params).all()
+      totalCount = countResult.results[0]?.count || 0
+      filteredCount = totalCount // Same as total when no search
+    }
+
+    // Build main data query
+    const dataConditions = buildWhereConditions(hasSearch)
+    const query = `
       SELECT 
         bc.*,
         GROUP_CONCAT(t.name) as tags,
@@ -204,45 +292,14 @@ app.get('/api/cards', async (c) => {
       FROM business_cards bc
       LEFT JOIN business_card_tags bct ON bc.id = bct.business_card_id
       LEFT JOIN tags t ON bct.tag_id = t.id
+      ${dataConditions.whereClause}
+      GROUP BY bc.id 
+      ORDER BY bc.created_at DESC 
+      LIMIT ? OFFSET ?
     `
-    const params = []
 
-    if (search) {
-      // Generate search variants (hiragana <-> katakana)
-      const searchVariants = generateSearchVariants(search)
-      
-      // Build dynamic search conditions for all variants
-      const searchConditions = searchVariants.map(() => `
-        (bc.id IN (
-          SELECT rowid FROM business_cards_fts 
-          WHERE business_cards_fts MATCH ?
-        ) OR 
-        bc.name LIKE ? OR 
-        bc.company LIKE ? OR
-        bc.department LIKE ? OR
-        bc.position LIKE ? OR
-        bc.notes LIKE ? OR
-        bc.id IN (
-          SELECT bct.business_card_id 
-          FROM business_card_tags bct
-          JOIN tags t ON bct.tag_id = t.id
-          WHERE t.name LIKE ?
-        ))
-      `).join(' OR ')
-      
-      query += ` WHERE (${searchConditions})`
-      
-      // Add parameters for each search variant (7 parameters per variant now)
-      searchVariants.forEach(variant => {
-        const likePattern = `%${variant}%`
-        params.push(variant, likePattern, likePattern, likePattern, likePattern, likePattern, likePattern)
-      })
-    }
-
-    query += ` GROUP BY bc.id ORDER BY bc.created_at DESC LIMIT ? OFFSET ?`
-    params.push(limit, offset)
-
-    const { results } = await DB.prepare(query).bind(...params).all()
+    const dataParams = [...dataConditions.params, limit, offset]
+    const { results } = await DB.prepare(query).bind(...dataParams).all()
 
     const cards = results.map((card: any) => ({
       ...card,
@@ -250,7 +307,12 @@ app.get('/api/cards', async (c) => {
       tag_colors: card.tag_colors ? card.tag_colors.split(',') : []
     }))
 
-    return c.json({ cards })
+    return c.json({ 
+      cards,
+      total: filteredCount, // for backward compatibility 
+      totalCount: totalCount,
+      filteredCount: filteredCount
+    })
   } catch (error) {
     console.error('Error fetching cards:', error)
     return c.json({ error: 'Failed to fetch business cards' }, 500)
@@ -838,10 +900,16 @@ app.get('/', (c) => {
             <div className="bg-white rounded-lg shadow">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">名刺一覧</h2>
+                  <div className="flex flex-col">
+                    <h2 className="text-xl font-semibold text-gray-900">名刺一覧</h2>
+                    <div id="card-count" className="text-sm text-gray-600 mt-1">
+                      <i className="fas fa-database mr-1"></i>
+                      <span id="count-text">読み込み中...</span>
+                    </div>
+                  </div>
                   <button 
                     id="add-card-btn" 
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200 mt-3 md:mt-0"
                   >
                     <i className="fas fa-plus mr-2"></i>新規登録
                   </button>
