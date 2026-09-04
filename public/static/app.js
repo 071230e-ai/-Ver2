@@ -175,24 +175,25 @@ class BusinessCardManager {
     }
 
     const cardsHTML = cards.map(card => `
-      <div class="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition duration-200">
+      <article class="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-sm hover:shadow-md transition duration-200 overflow-hidden">
         ${card.image_url ? `
-          <div class="mb-4">
-            <img src="${this.escapeHtml(card.image_url)}" alt="名刺画像" class="w-full h-48 object-contain rounded-lg border border-gray-200">
+          <div class="mb-4 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+            <img src="${this.escapeHtml(card.image_url)}" alt="${this.escapeHtml(card.name)}さんの名刺画像" class="w-full h-auto max-h-64 object-contain">
           </div>
         ` : ''}
         
         <div class="flex justify-between items-start mb-4">
           <div class="flex-1">
-            <h3 class="text-lg font-semibold text-gray-900">${this.escapeHtml(card.name)}</h3>
-            <p class="text-sm text-gray-600">${this.escapeHtml(card.company)}</p>
-            ${card.department ? `<p class="text-sm text-gray-500">${this.escapeHtml(card.department)}</p>` : ''}
-            ${card.position ? `<p class="text-sm text-gray-500">${this.escapeHtml(card.position)}</p>` : ''}
+            <h3 class="text-lg font-bold text-gray-900 leading-snug">${this.escapeHtml(card.name)}</h3>
+            <p class="text-base text-gray-700 mt-1">${this.escapeHtml(card.company)}</p>
+            ${card.department ? `<p class="text-sm text-gray-600 mt-1">${this.escapeHtml(card.department)}</p>` : ''}
+            ${card.position ? `<p class="text-sm text-gray-600">${this.escapeHtml(card.position)}</p>` : ''}
           </div>
           <div class="flex gap-2">
             <button 
               onclick="cardManager.editCard(${card.id})" 
-              class="text-blue-600 hover:text-blue-800 transition duration-200"
+              class="w-11 h-11 -mt-2 -mr-2 flex items-center justify-center text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-full transition duration-200"
+              aria-label="${this.escapeHtml(card.name)}さんの名刺を編集"
               title="編集"
             >
               <i class="fas fa-edit"></i>
@@ -200,11 +201,11 @@ class BusinessCardManager {
           </div>
         </div>
 
-        <div class="space-y-2 text-sm">
+        <div class="space-y-3 text-sm sm:text-base">
           ${card.phone ? `
-            <div class="flex items-center text-gray-700">
-              <i class="fas fa-phone w-4 mr-2"></i>
-              <a href="tel:${this.escapeHtml(card.phone)}" class="hover:text-blue-600">${this.escapeHtml(card.phone)}</a>
+            <div class="flex items-start text-gray-700">
+              <i class="fas fa-phone w-5 mr-2 mt-1"></i>
+              <a href="tel:${this.escapeHtml(card.phone)}" class="text-blue-700 hover:text-blue-800 break-all py-0.5">${this.escapeHtml(card.phone)}</a>
             </div>
           ` : ''}
           
@@ -248,15 +249,15 @@ class BusinessCardManager {
           </div>
         ` : ''}
 
-        <div class="mt-4 text-xs text-gray-400 border-t pt-3 flex justify-between">
+        <div class="mt-4 text-xs text-gray-500 border-t pt-3 flex flex-col sm:flex-row gap-1 sm:justify-between">
           <span>登録者: ${this.escapeHtml(card.registered_by)}</span>
           <span>登録日: ${new Date(card.created_at).toLocaleDateString('ja-JP')}</span>
         </div>
-      </div>
+      </article>
     `).join('');
 
     container.innerHTML = `
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-6">
         ${cardsHTML}
       </div>
     `;

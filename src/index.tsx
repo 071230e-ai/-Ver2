@@ -874,21 +874,21 @@ app.get('/', (c) => {
 
       {/* Main Application (hidden by default) */}
       <div id="main-app" className="min-h-screen bg-gray-50" style="display: none;">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center mb-8">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-4xl font-bold text-gray-900 mb-4">
-                  <i className="fas fa-address-card mr-3 text-blue-600"></i>
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+          <div className="mb-4 sm:mb-8">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-4xl font-bold text-gray-900 leading-tight">
+                  <i className="fas fa-address-card mr-2 sm:mr-3 text-blue-600"></i>
                   社内名刺管理システム
                 </h1>
-                <p className="text-lg text-gray-600">
+                <p className="hidden sm:block text-lg text-gray-600 mt-3">
                   名刺の共有・管理を効率的に行うWebアプリケーション
                 </p>
               </div>
               <button 
                 id="logout-btn" 
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md transition duration-200"
+                className="shrink-0 bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 min-h-11 rounded-lg transition duration-200 text-sm font-medium"
               >
                 <i className="fas fa-sign-out-alt mr-2"></i>ログアウト
               </button>
@@ -897,11 +897,11 @@ app.get('/', (c) => {
 
           <div id="app">
 
-            <div className="bg-white rounded-lg shadow">
-              <div className="p-6 border-b border-gray-200">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-4 sm:p-6 border-b border-gray-200">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
                   <div className="flex flex-col">
-                    <h2 className="text-xl font-semibold text-gray-900">名刺一覧</h2>
+                    <h2 className="text-lg sm:text-xl font-semibold text-gray-900">名刺一覧</h2>
                     <div id="card-count" className="text-sm text-gray-600 mt-1">
                       <i className="fas fa-database mr-1"></i>
                       <span id="count-text">読み込み中...</span>
@@ -909,41 +909,43 @@ app.get('/', (c) => {
                   </div>
                   <button 
                     id="add-card-btn" 
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200 mt-3 md:mt-0"
+                    className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 min-h-12 rounded-lg font-medium transition duration-200 mt-3 md:mt-0"
                   >
                     <i className="fas fa-plus mr-2"></i>新規登録
                   </button>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                     <input 
                       type="text" 
                       id="search-input" 
                       placeholder="名前・会社名・タグで検索（例: たなか、テック、えいぎょう）" 
-                      className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full flex-1 border border-gray-300 rounded-lg px-3 min-h-12 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <button 
-                      id="search-btn" 
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200"
-                    >
-                      <i className="fas fa-search mr-2"></i>検索
-                    </button>
-                    <button 
-                      id="clear-search-btn" 
-                      className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition duration-200"
-                    >
-                      <i className="fas fa-times mr-2"></i>クリア
-                    </button>
+                    <div className="grid grid-cols-2 sm:flex gap-2">
+                      <button
+                        id="search-btn"
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 min-h-12 rounded-lg font-medium transition duration-200"
+                      >
+                        <i className="fas fa-search mr-2"></i>検索
+                      </button>
+                      <button
+                        id="clear-search-btn"
+                        className="bg-gray-500 hover:bg-gray-600 text-white px-4 min-h-12 rounded-lg font-medium transition duration-200"
+                      >
+                        <i className="fas fa-times mr-2"></i>クリア
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="hidden sm:block text-sm text-gray-600">
                     <i className="fas fa-info-circle mr-1"></i>
                     名前・会社名・タグをひらがな・カタカナ・漢字で検索可能（例: 「たなか」で「田中」、「えいぎょう」で「営業」タグがヒット）
                   </p>
                 </div>
               </div>
 
-              <div id="cards-container" className="p-6">
+              <div id="cards-container" className="p-3 sm:p-6">
                 <div className="text-center py-12">
                   <i className="fas fa-spinner fa-spin text-4xl text-gray-400 mb-4"></i>
                   <p className="text-gray-500">読み込み中...</p>
@@ -954,12 +956,12 @@ app.get('/', (c) => {
 
           {/* Modal */}
           <div id="card-modal" className="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
-            <div className="flex items-center justify-center min-h-screen p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
-                <div className="p-6">
+            <div className="flex items-end sm:items-center justify-center min-h-screen sm:p-4">
+              <div className="bg-white rounded-t-2xl sm:rounded-lg shadow-xl max-w-2xl w-full max-h-[94vh] sm:max-h-[90vh] overflow-y-auto">
+                <div className="p-4 sm:p-6">
                   <div className="flex justify-between items-center mb-4">
                     <h3 id="modal-title" className="text-xl font-semibold">新規名刺登録</h3>
-                    <button id="close-modal" className="text-gray-400 hover:text-gray-600">
+                    <button id="close-modal" className="w-11 h-11 -mr-2 flex items-center justify-center text-gray-500 hover:text-gray-700 text-xl" aria-label="閉じる">
                       <i className="fas fa-times"></i>
                     </button>
                   </div>
