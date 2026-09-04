@@ -89,15 +89,15 @@ textarea {
 
 @media (max-width: 640px) {
   .business-card-item {
-    padding-left: 8px;
-    padding-right: 8px;
+    padding-left: 4px;
+    padding-right: 4px;
   }
 
   .business-card-image-frame {
     margin-left: -1px;
     margin-right: -1px;
     width: calc(100% + 2px);
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
   }
 
   input,
