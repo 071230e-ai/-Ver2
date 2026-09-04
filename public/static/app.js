@@ -316,7 +316,6 @@ class BusinessCardManager {
     const height = source.naturalHeight;
     if (!width || !height || width < 80 || height < 50) return;
 
-    // Work on a reduced canvas for fast mobile processing.
     const maxAnalysisWidth = 1000;
     const scale = Math.min(1, maxAnalysisWidth / width);
     const analysisWidth = Math.max(1, Math.round(width * scale));
@@ -334,22 +333,16 @@ class BusinessCardManager {
     try {
       pixels = ctx.getImageData(0, 0, analysisWidth, analysisHeight).data;
     } catch (error) {
-      // Canvas may be unavailable for a cross-origin image. In that case,
-      // leave the original image untouched.
       return;
     }
 
-    // Detect actual printed content rather than faint scanner shadows or
-    // near-white background. This intentionally trims much more aggressively
-    // than the previous implementation so the business card fills the phone.
-    const rowCounts = new Uint32Array(analysisHeight);
-    const colCounts = new Uint32Array(analysisWidth);
+    const mask = new Uint8Array(analysisWidth * analysisHeight);
+    const initialColCounts = new Uint32Array(analysisWidth);
 
     for (let y = 0; y < analysisHeight; y += 1) {
       for (let x = 0; x < analysisWidth; x += 1) {
         const i = (y * analysisWidth + x) * 4;
-        const alpha = pixels[i + 3];
-        if (alpha < 20) continue;
+        if (pixels[i + 3] < 20) continue;
 
         const r = pixels[i];
         const g = pixels[i + 1];
@@ -358,51 +351,106 @@ class BusinessCardManager {
         const maxChannel = Math.max(r, g, b);
         const saturation = maxChannel - minChannel;
 
-        // Dark/medium text, logos and sufficiently saturated colors count as
-        // card content. Pale gray/white background and shadows do not.
-        const isContent = minChannel < 230 || (saturation > 34 && minChannel < 246);
+        // Focus on clearly printed text/logos/QR codes. Pale scanner shadows
+        // and near-white paper are intentionally ignored.
+        const isContent = minChannel < 218 || (saturation > 42 && minChannel < 242);
         if (isContent) {
-          rowCounts[y] += 1;
-          colCounts[x] += 1;
+          mask[y * analysisWidth + x] = 1;
+          initialColCounts[x] += 1;
         }
       }
     }
 
-    // Ignore isolated specks and faint edge noise.
-    const rowMinimum = Math.max(3, Math.round(analysisWidth * 0.006));
-    const colMinimum = Math.max(3, Math.round(analysisHeight * 0.012));
+    // Scanner photos often contain a long black line at the extreme edge.
+    // Treat near-full-height dark columns near either edge as artifacts.
+    const artifactColumn = new Uint8Array(analysisWidth);
+    const edgeZone = Math.max(6, Math.round(analysisWidth * 0.14));
+    for (let x = 0; x < analysisWidth; x += 1) {
+      const nearEdge = x < edgeZone || x >= analysisWidth - edgeZone;
+      if (nearEdge && initialColCounts[x] > analysisHeight * 0.48) {
+        artifactColumn[x] = 1;
+      }
+    }
 
-    let top = 0;
-    let bottom = analysisHeight - 1;
-    let left = 0;
-    let right = analysisWidth - 1;
+    const rowCounts = new Uint32Array(analysisHeight);
+    for (let y = 0; y < analysisHeight; y += 1) {
+      let count = 0;
+      for (let x = 0; x < analysisWidth; x += 1) {
+        if (!artifactColumn[x] && mask[y * analysisWidth + x]) count += 1;
+      }
+      rowCounts[y] = count;
+    }
 
-    while (top < bottom && rowCounts[top] < rowMinimum) top += 1;
-    while (bottom > top && rowCounts[bottom] < rowMinimum) bottom -= 1;
-    while (left < right && colCounts[left] < colMinimum) left += 1;
-    while (right > left && colCounts[right] < colMinimum) right -= 1;
+    const weightedBounds = (counts, lowFraction, highFraction) => {
+      let total = 0;
+      for (let i = 0; i < counts.length; i += 1) total += counts[i];
+      if (!total) return null;
+
+      const lowTarget = total * lowFraction;
+      const highTarget = total * highFraction;
+      let cumulative = 0;
+      let low = 0;
+      let high = counts.length - 1;
+      let lowFound = false;
+
+      for (let i = 0; i < counts.length; i += 1) {
+        cumulative += counts[i];
+        if (!lowFound && cumulative >= lowTarget) {
+          low = i;
+          lowFound = true;
+        }
+        if (cumulative >= highTarget) {
+          high = i;
+          break;
+        }
+      }
+      return { low, high, total };
+    };
+
+    // Weighted percentiles eliminate isolated dust in the large blank lower
+    // half while retaining nearly all real printed content.
+    const yBounds = weightedBounds(rowCounts, 0.006, 0.994);
+    if (!yBounds) return;
+
+    let top = yBounds.low;
+    let bottom = yBounds.high;
+    const contentHeight = bottom - top + 1;
+    if (contentHeight < analysisHeight * 0.12) return;
+
+    const colCounts = new Uint32Array(analysisWidth);
+    for (let x = 0; x < analysisWidth; x += 1) {
+      if (artifactColumn[x]) continue;
+      let count = 0;
+      for (let y = top; y <= bottom; y += 1) {
+        if (mask[y * analysisWidth + x]) count += 1;
+      }
+      colCounts[x] = count;
+    }
+
+    const xBounds = weightedBounds(colCounts, 0.004, 0.996);
+    if (!xBounds) return;
+
+    let left = xBounds.low;
+    let right = xBounds.high;
 
     let cropWidth = right - left + 1;
     let cropHeight = bottom - top + 1;
+    if (cropWidth < analysisWidth * 0.16 || cropHeight < analysisHeight * 0.12) return;
 
-    // If detection produced an implausibly small area, do not crop.
-    if (cropWidth < analysisWidth * 0.18 || cropHeight < analysisHeight * 0.14) return;
-
-    // Only keep a very small safety margin. Do not expand back to 91:55,
-    // because that was reintroducing the large white margins on some images.
-    const padX = Math.max(3, Math.round(cropWidth * 0.012));
-    const padY = Math.max(3, Math.round(cropHeight * 0.018));
+    // A small safety margin keeps characters and logos from touching the edge,
+    // but does not bring back the large scanner whitespace.
+    const padX = Math.max(4, Math.round(cropWidth * 0.018));
+    const padY = Math.max(4, Math.round(cropHeight * 0.028));
     left = Math.max(0, left - padX);
     right = Math.min(analysisWidth - 1, right + padX);
     top = Math.max(0, top - padY);
     bottom = Math.min(analysisHeight - 1, bottom + padY);
+
     cropWidth = right - left + 1;
     cropHeight = bottom - top + 1;
 
-    // Crop even when the gain is modest; the user's priority is maximum
-    // readable card size on mobile.
     const retainedArea = (cropWidth * cropHeight) / (analysisWidth * analysisHeight);
-    if (retainedArea > 0.985) return;
+    if (retainedArea > 0.97) return;
 
     const sourceX = left / scale;
     const sourceY = top / scale;
